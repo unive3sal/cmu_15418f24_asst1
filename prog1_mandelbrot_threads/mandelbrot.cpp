@@ -117,12 +117,60 @@ typedef struct {
 //
 // Thread entrypoint.
 void* workerThreadStart(void* threadArgs) {
-
+    char s[] = "dumptagche*(&";
+    double startTime = CycleTimer::currentSeconds();
     WorkerArgs* args = static_cast<WorkerArgs*>(threadArgs);
 
     // TODO: Implement worker thread here.
+    // printf("Hello world from thread %d\n", args->threadId);
 
-    printf("Hello world from thread %d\n", args->threadId);
+    /*********** separate matrix into uniform block ************
+     * different thread will access same cache block 
+     * it probably provoke data harzard */
+    /*
+    unsigned int block_height = args->height / args->numThreads;
+    int start_row = args->threadId * block_height;
+    int end_row = start_row + block_height;
+    if (args->threadId == args->numThreads - 1) {
+        end_row = args->height;
+    }
+    mandelbrotSerial(
+        args->x0,
+        args->y0,
+        args->x1, 
+        args->y1, 
+        args->width, 
+        args->height, 
+        start_row, 
+        end_row, 
+        args->maxIterations, 
+        args->output
+    );
+    */
+
+    /***** separate it into interleaved rows *******/
+    int row_num = (args->height + args->numThreads - 1) / args->numThreads;
+    for (int i = 0; i < row_num; ++i) {
+        int start_row = i * args->numThreads + args->threadId;
+        if (start_row >= args->height) {
+            break;
+        }
+        mandelbrotSerial(
+            args->x0,
+            args->y0,
+            args->x1, 
+            args->y1, 
+            args->width, 
+            args->height, 
+            start_row, 
+            start_row + 1, 
+            args->maxIterations, 
+            args->output
+        );
+    }
+
+    double endTime = CycleTimer::currentSeconds();
+    printf("thread %d: [%.3f] ms\n", args->threadId, endTime - startTime);
 
     return NULL;
 }
@@ -151,7 +199,16 @@ void mandelbrotThread(
 
     for (int i=0; i<numThreads; i++) {
         // TODO: Set thread arguments here.
+        args[i].x0 = x0;
+        args[i].x1 = x1;
+        args[i].y0 = y0;
+        args[i].y1 = y1;
+        args[i].width = width;
+        args[i].height = height;
+        args[i].maxIterations = maxIterations;
+        args[i].output = output;
         args[i].threadId = i;
+        args[i].numThreads = numThreads;
     }
 
     // Fire up the worker threads.  Note that numThreads-1 pthreads

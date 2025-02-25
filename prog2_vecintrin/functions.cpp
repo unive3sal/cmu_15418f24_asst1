@@ -82,7 +82,41 @@ void clampedExpSerial(float* values, int* exponents, float* output, int N) {
 
 void clampedExpVector(float* values, int* exponents, float* output, int N) {
     // Implement your vectorized version of clampedExpSerial here
-    //  ...
+    for (int i = 0; i < N; i += VECTOR_WIDTH) {
+        __cmu418_mask mask;
+        __cmu418_vec_float x, result, xpower;
+        __cmu418_vec_int y, ones, zeros;
+
+        mask = N - i < VECTOR_WIDTH ? _cmu418_init_ones(N - i) : _cmu418_init_ones();
+        _cmu418_vload_float(x, values + i, mask);
+        _cmu418_vset_float(result, 1.f, mask);
+        _cmu418_vload_int(y, exponents + i, mask);
+        _cmu418_vload_float(xpower, values + i, mask);
+        _cmu418_vset_int(ones, 1, mask);
+        _cmu418_vset_int(zeros, 0, mask);
+
+        __cmu418_mask exp_cond_mask;
+        _cmu418_vgt_int(exp_cond_mask, y, zeros, mask);
+        while (_cmu418_cntbits(exp_cond_mask) > 0) {
+            // if (y & 0x1)
+            __cmu418_vec_int bit_and_res;
+            _cmu418_vbitand_int(bit_and_res, y, ones, mask);
+            __cmu418_mask bit_and_mask;
+            _cmu418_vgt_int(bit_and_mask, bit_and_res, zeros, mask);
+            _cmu418_vmult_float(result, result, xpower, bit_and_mask);
+
+            _cmu418_vmult_float(xpower, xpower, xpower, exp_cond_mask);
+
+            _cmu418_vshiftright_int(y, y, ones, exp_cond_mask);
+            _cmu418_vgt_int(exp_cond_mask, y, zeros, mask);
+        }
+        __cmu418_vec_float th = _cmu418_vset_float(4.18f);
+        __cmu418_mask result_mask;
+        _cmu418_vgt_float(result_mask, result, th, mask);
+        _cmu418_vset_float(result, 4.18f, result_mask);
+
+        _cmu418_vstore_float(output + i, result, mask);
+    }
 }
 
 
@@ -99,6 +133,22 @@ float arraySumSerial(float* values, int N) {
 // Assume VECTOR_WIDTH is a power of 2
 float arraySumVector(float* values, int N) {
     // Implement your vectorized version here
-    //  ...
-	return 0.f;
+    __cmu418_vec_float sum = _cmu418_vset_float(0.f);
+    for (int i = 0; i < N; i += VECTOR_WIDTH) {
+        __cmu418_vec_float vals;
+        __cmu418_mask mask = _cmu418_init_ones();
+        _cmu418_vload_float(vals, values + i, mask);
+        _cmu418_vadd_float(sum, sum, vals, mask);
+    }
+
+    float ans = 0.f;
+    __cmu418_mask mask = _cmu418_init_ones(1);
+    unsigned int cnt = VECTOR_WIDTH >> 1;
+    while (cnt > 0) {
+        _cmu418_hadd_float(sum, sum);
+        _cmu418_interleave_float(sum, sum);
+        cnt >>= 1;
+    }
+    _cmu418_vstore_float(&ans, sum, mask);
+	return ans;
 }
